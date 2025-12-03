@@ -13,4 +13,12 @@ server_scripts {
 
 shared_script 'config.lua'
 
+ui_page 'html/index.html'
+
+files {
+  'html/index.html',
+  'html/app.js',
+  'growing.mp3'
+}
+
 lua54 'yes'
