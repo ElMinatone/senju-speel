@@ -2,13 +2,16 @@ local last = 0
 local senjuActive = false
 local targetPos
 local RADIUS_MIN = 2.0 -- raio mínimo da área em metros
-local RADIUS_MAX = 20.0 -- raio máximo da área em metros
-local AUDIO_BASE_VOLUME = 0.8 -- volume no centro da área (0.0 a 1.0)
-local AUDIO_MAX_DISTANCE = 40.0 -- distância máxima para ouvir o áudio em metros
+local RADIUS_MAX = 15.0 -- raio máximo da área em metros
+local AUDIO_BASE_VOLUME = 0.9 -- volume no centro da área (0.0 a 1.0)
+local AUDIO_MAX_DISTANCE = 60.0 -- distância máxima para ouvir o áudio em metros
 local DENSITY_MIN = 0.10 -- densidade mínima de árvores por m²
 local DENSITY_MAX = 0.20 -- densidade máxima de árvores por m²
 local DENSITY_MIN_COUNT = 8 -- quantidade mínima de árvores
 local DENSITY_MAX_COUNT = 48 -- quantidade máxima de árvores
+local DENSITY_BASE_RADIUS = 5.0 -- raio referência onde a densidade padrão é mantida
+local DENSITY_FINAL_MULT = 3.0 -- multiplicador final da densidade ao atingir RADIUS_MAX
+local ACCEL_MULT = 1.3 -- multiplicador de aceleração; maior = mais brusco e mais impacto
 local radius = 5.0 -- raio inicial da área em metros
 local lastTargetPos
 local lastRadius
@@ -86,7 +89,17 @@ local function castTrees(center, rad)
   local objs = {}
   local placed = {}
   local area = math.pi * rad * rad
-  local dens = DENSITY_MIN + (DENSITY_MAX - DENSITY_MIN) * math.random()
+  local densRand = DENSITY_MIN + (DENSITY_MAX - DENSITY_MIN) * math.random()
+  local t
+  if rad <= DENSITY_BASE_RADIUS then
+    t = 0.0
+  elseif rad >= RADIUS_MAX then
+    t = 1.0
+  else
+    t = (rad - DENSITY_BASE_RADIUS) / (RADIUS_MAX - DENSITY_BASE_RADIUS)
+  end
+  local geomFactor = DENSITY_FINAL_MULT ^ t
+  local dens = densRand * geomFactor
   local rawCount = math.floor(area * dens)
   local count = math.min(DENSITY_MAX_COUNT, math.max(DENSITY_MIN_COUNT, rawCount))
   for i = 1, count do
@@ -160,7 +173,7 @@ local function castTrees(center, rad)
         local dz = nz - (GetEntityCoords(o.obj).z)
         SetEntityCoordsNoOffset(o.obj, o.x, o.y, nz, true, true, true)
         SetEntityRotation(o.obj, o.tiltX, o.tiltY, o.tiltZ, 2)
-        SetEntityVelocity(o.obj, 0.0, 0.0, math.max(0.0, dz * 20.0))
+        SetEntityVelocity(o.obj, 0.0, 0.0, math.max(0.0, dz * (20.0 * ACCEL_MULT)))
       end
       local players = GetActivePlayers()
       for i = 1, #players do
@@ -174,14 +187,14 @@ local function castTrees(center, rad)
           local dlen = math.sqrt(dist2) + 0.001
           local nx = dx / dlen
           local ny = dy / dlen
-          local zBoost = 35.0
+          local zBoost = 35.0 * ACCEL_MULT
           local veh = GetVehiclePedIsIn(pped, false)
           if veh and veh ~= 0 then
             SetEntityAsMissionEntity(veh, true, true)
             affectedVehs[veh] = true
-            ApplyForceToEntity(veh, 1, nx * 60.0, ny * 60.0, zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+            ApplyForceToEntity(veh, 1, nx * (60.0 * ACCEL_MULT), ny * (60.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
           else
-            ApplyForceToEntity(pped, 1, nx * 60.0, ny * 60.0, zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+            ApplyForceToEntity(pped, 1, nx * (60.0 * ACCEL_MULT), ny * (60.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
           end
         end
       end
@@ -216,7 +229,7 @@ local function castTrees(center, rad)
         local dz = nz - (GetEntityCoords(o.obj).z)
         SetEntityCoordsNoOffset(o.obj, o.x, o.y, nz, true, true, true)
         SetEntityRotation(o.obj, o.tiltX, o.tiltY, o.tiltZ, 2)
-        SetEntityVelocity(o.obj, 0.0, 0.0, math.min(0.0, dz * 25.0))
+        SetEntityVelocity(o.obj, 0.0, 0.0, math.min(0.0, dz * (25.0 * ACCEL_MULT)))
       end
       local players2 = GetActivePlayers()
       for i = 1, #players2 do
@@ -230,14 +243,14 @@ local function castTrees(center, rad)
           local dlen = math.sqrt(dist2) + 0.001
           local nx = dx / dlen
           local ny = dy / dlen
-          local zBoost = 25.0
+          local zBoost = 25.0 * ACCEL_MULT
           local veh = GetVehiclePedIsIn(pped, false)
           if veh and veh ~= 0 then
             SetEntityAsMissionEntity(veh, true, true)
             affectedVehs[veh] = true
-            ApplyForceToEntity(veh, 1, nx * 55.0, ny * 55.0, zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+            ApplyForceToEntity(veh, 1, nx * (55.0 * ACCEL_MULT), ny * (55.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
           else
-            ApplyForceToEntity(pped, 1, nx * 55.0, ny * 55.0, zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+            ApplyForceToEntity(pped, 1, nx * (55.0 * ACCEL_MULT), ny * (55.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
           end
         end
       end
@@ -300,16 +313,23 @@ RegisterNetEvent('um-senju:client:activate', function(src)
       DisableControlAction(0, 140, true)
       DisableControlAction(0, 141, true)
       DisableControlAction(0, 142, true)
-      targetPos = raycastFromCam(60.0) or GetEntityCoords(ped)
-      if lastTargetPos then
-        local dx = targetPos.x - lastTargetPos.x
-        local dy = targetPos.y - lastTargetPos.y
-        local dz = targetPos.z - lastTargetPos.z
-        if (dx * dx + dy * dy + dz * dz) > 0.04 then
-          blinkUntil = GetGameTimer() + 600
+      local origin = GetGameplayCamCoord()
+      local dir = camForward()
+      local hitPos = raycastFromCam(60.0)
+      if hitPos then
+        targetPos = hitPos
+        if lastTargetPos then
+          local dx = targetPos.x - lastTargetPos.x
+          local dy = targetPos.y - lastTargetPos.y
+          local dz = targetPos.z - lastTargetPos.z
+          if (dx*dx + dy*dy + dz*dz) > 0.04 then
+            blinkUntil = GetGameTimer() + 600
+          end
         end
+        lastTargetPos = targetPos
+      else
+        targetPos = lastTargetPos or (origin + dir * 5.0)
       end
-      lastTargetPos = targetPos
       if IsControlJustPressed(0, 15) then radius = math.min(radius + 0.5, RADIUS_MAX); blinkUntil = GetGameTimer() + 600 end
       if IsControlJustPressed(0, 14) then radius = math.max(radius - 0.5, RADIUS_MIN); blinkUntil = GetGameTimer() + 600 end
       drawCircleAt(targetPos, radius)
