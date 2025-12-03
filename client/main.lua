@@ -378,12 +378,13 @@ RegisterNetEvent('um-senju:client:activate', function(src)
         drawCircleAt(targetPos, radius)
       end
       BeginTextCommandDisplayHelp("STRING")
-      local hint = (shapes[shapeIndex] == 'bar' and "Formato: Barra (~INPUT_COVER~/~INPUT_CONTEXT~) | ~INPUT_ATTACK~ para castar" or "Formato: Círculo (~INPUT_COVER~/~INPUT_CONTEXT~) | ~INPUT_ATTACK~ para castar")
+      local hint = "~INPUT_COVER~/~INPUT_CONTEXT~ Trocar formato | ~INPUT_ATTACK~ Castar"
       AddTextComponentSubstringPlayerName(hint)
       EndTextCommandDisplayHelp(0, false, false, -1)
+      
       if IsDisabledControlJustPressed(0, 24) then
         if casting or next(activeProps) ~= nil then
-          TriggerEvent('QBCore:Notify', 'Magia ainda está recarregando', 'error', 2000)
+          TriggerEvent('QBCore:Notify', 'O solo ainda está se recuperando..', 'error', 2000)
         else
           ensureAnim('misslamar1leadinout')
           TaskPlayAnim(ped, 'misslamar1leadinout', 'yoga_02_idle', 8.0, 1.0, 3000, 1, 0.0, false, false, false)
@@ -399,9 +400,10 @@ RegisterNetEvent('um-senju:client:activate', function(src)
               DisableControlAction(0, 140, true)
               DisableControlAction(0, 141, true)
               DisableControlAction(0, 142, true)
-              if IsControlJustPressed(0, 167) or IsControlJustPressed(0, 73) then
+              if IsControlJustPressed(0, 167) or IsControlJustPressed(0, 73) or IsControlJustPressed(0, 200) or IsControlJustPressed(0, 177) then
                 ClearPedTasksImmediately(ped)
                 casting = false
+                castAbort = true
               end
               Wait(0)
             end
@@ -420,7 +422,8 @@ RegisterNetEvent('um-senju:client:activate', function(src)
         shapeIndex = shapeIndex + 1
         if shapeIndex > #shapes then shapeIndex = 1 end
       end
-      if IsControlJustPressed(0, 167) or IsControlJustPressed(0, 73) then
+      if IsControlJustPressed(0, 167) or IsControlJustPressed(0, 73) or IsControlJustPressed(0, 200) or IsControlJustPressed(0, 177) then
+        castAbort = true
         cancelSenju()
         break
       end
