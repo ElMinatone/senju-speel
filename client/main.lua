@@ -11,7 +11,7 @@ local DENSITY_MIN_COUNT = 8 -- quantidade mínima de árvores
 local DENSITY_MAX_COUNT = 48 -- quantidade máxima de árvores
 local DENSITY_BASE_RADIUS = 5.0 -- raio referência onde a densidade padrão é mantida
 local DENSITY_FINAL_MULT = 3.0 -- multiplicador final da densidade ao atingir RADIUS_MAX
-local ACCEL_MULT = 1.3 -- multiplicador de aceleração; maior = mais brusco e mais impacto
+local ACCEL_MULT = 1.0 -- multiplicador de aceleração; maior = mais brusco e mais impacto
 local radius = 5.0 -- raio inicial da área em metros
 local lastTargetPos
 local lastRadius
@@ -24,6 +24,8 @@ local treeModels = {
 }
 local activeProps = {}
 local casting = false
+local shapes = { 'circle', 'bar' }
+local shapeIndex = 1
 
 local function ensureAnim(dict)
   RequestAnimDict(dict)
@@ -36,6 +38,8 @@ local function cancelSenju()
   if not senjuActive then return end
   senjuActive = false
   ClearPedTasksImmediately(PlayerPedId())
+  shapeIndex = 1
+  radius = 5.0
 end
 
 local function camForward()
@@ -46,6 +50,13 @@ local function camForward()
   local cy = math.cos(rz) * math.cos(rx)
   local cz = math.sin(rx)
   return vector3(cx, cy, cz)
+end
+
+local function camRight()
+  local f = camForward()
+  local len = math.sqrt(f.x * f.x + f.y * f.y)
+  if len <= 0.0001 then return vector3(1.0, 0.0, 0.0) end
+  return vector3(-f.y / len, f.x / len, 0.0)
 end
 
 local function raycastFromCam(dist)
@@ -70,6 +81,20 @@ local function drawCircleAt(pos, rad)
     false, true, 2, false, nil, nil, false)
 end
 
+local function drawBarAt(pos, rad)
+  if not pos then return end
+  local right = camRight()
+  local _, gz = GetGroundZFor_3dCoord(pos.x, pos.y, pos.z, false)
+  local baseZ = (gz or pos.z) + 0.03
+  local heading = math.deg(math.atan2(right.y, right.x))
+  local now = GetGameTimer()
+  local alpha = 180
+  if blinkUntil > now then
+    alpha = 120 + math.floor(80 * math.abs(math.sin(now / 120.0)))
+  end
+  DrawMarker(1, pos.x, pos.y, baseZ, 0.0, 0.0, 0.0, 0.0, 0.0, heading, rad * 2.2, rad * 0.6, 0.25, 255, 255, 255, alpha, false, true, 2, false, nil, nil, false)
+end
+
 local function ensureModel(model)
   if not IsModelInCdimage(model) or not IsModelValid(model) then return false end
   RequestModel(model)
@@ -81,7 +106,7 @@ local function ensureModel(model)
   return HasModelLoaded(model)
 end
 
-local function castTrees(center, rad)
+local function castTrees(center, rad, shape, basis)
   if not center then return end
   local cx, cy, cz = center.x, center.y, center.z
   local _, gz = GetGroundZFor_3dCoord(cx, cy, cz, false)
@@ -103,34 +128,43 @@ local function castTrees(center, rad)
   local rawCount = math.floor(area * dens)
   local count = math.min(DENSITY_MAX_COUNT, math.max(DENSITY_MIN_COUNT, rawCount))
   for i = 1, count do
-    local minSep = math.max(2.5, rad * 0.15)
     local ox, oy
-    local found = false
-    for try = 1, 12 do
-      local ang = math.random() * 2.0 * math.pi
-      local r = (math.random() * 0.8 + 0.4) * rad
-      local tx = cx + math.cos(ang) * r
-      local ty = cy + math.sin(ang) * r
-      local ok = true
-      for j = 1, #placed do
-        local dx = tx - placed[j].x
-        local dy = ty - placed[j].y
-        if (dx * dx + dy * dy) < (minSep * minSep) then
-          ok = false
+    if shape == 'bar' and basis and basis.right and basis.forward then
+      local L = rad
+      local W = rad * 0.5
+      local s = (math.random() * 2.0 - 1.0) * L
+      local w = (math.random() * 2.0 - 1.0) * W
+      ox = cx + basis.right.x * s + basis.forward.x * w
+      oy = cy + basis.right.y * s + basis.forward.y * w
+    else
+      local minSep = math.max(2.5, rad * 0.15)
+      local found = false
+      for try = 1, 12 do
+        local ang = math.random() * 2.0 * math.pi
+        local r = (math.random() * 0.8 + 0.4) * rad
+        local tx = cx + math.cos(ang) * r
+        local ty = cy + math.sin(ang) * r
+        local ok = true
+        for j = 1, #placed do
+          local dx = tx - placed[j].x
+          local dy = ty - placed[j].y
+          if (dx * dx + dy * dy) < (minSep * minSep) then
+            ok = false
+            break
+          end
+        end
+        if ok then
+          ox, oy = tx, ty
+          found = true
           break
         end
       end
-      if ok then
-        ox, oy = tx, ty
-        found = true
-        break
+      if not found then
+        local ang = math.random() * 2.0 * math.pi
+        local r = (math.random() * 0.8 + 0.4) * rad
+        ox = cx + math.cos(ang) * r
+        oy = cy + math.sin(ang) * r
       end
-    end
-    if not found then
-      local ang = math.random() * 2.0 * math.pi
-      local r = (math.random() * 0.8 + 0.4) * rad
-      ox = cx + math.cos(ang) * r
-      oy = cy + math.sin(ang) * r
     end
     placed[#placed + 1] = { x = ox, y = oy }
     local _, ogz = GetGroundZFor_3dCoord(ox, oy, baseZ, false)
@@ -297,13 +331,19 @@ end)
 
 RegisterNetEvent('um-senju:client:activate', function(src)
   local now = GetGameTimer()
+  if casting or next(activeProps) ~= nil then
+    -- TriggerEvent('QBCore:Notify', 'Magia ainda está recarregando', 'error', 2000)
+    return
+  end
   if senjuActive then
     cancelSenju()
     return
   end
   if now - last < Config.cooldown_ms then return end
   last = now
-  TriggerEvent('QBCore:Notify', 'Usando senju', 'success', 3000)
+  -- TriggerEvent('QBCore:Notify', 'Usando senju', 'success', 3000)
+  shapeIndex = 1
+  radius = 5.0
   senjuActive = true
   local ped = PlayerPedId()
   CreateThread(function()
@@ -332,36 +372,53 @@ RegisterNetEvent('um-senju:client:activate', function(src)
       end
       if IsControlJustPressed(0, 15) then radius = math.min(radius + 0.5, RADIUS_MAX); blinkUntil = GetGameTimer() + 600 end
       if IsControlJustPressed(0, 14) then radius = math.max(radius - 0.5, RADIUS_MIN); blinkUntil = GetGameTimer() + 600 end
-      drawCircleAt(targetPos, radius)
+      if shapes[shapeIndex] == 'bar' then
+        drawBarAt(targetPos, radius)
+      else
+        drawCircleAt(targetPos, radius)
+      end
       BeginTextCommandDisplayHelp("STRING")
-      AddTextComponentSubstringPlayerName("~INPUT_ATTACK~ para castar")
+      local hint = (shapes[shapeIndex] == 'bar' and "Formato: Barra (~INPUT_COVER~/~INPUT_CONTEXT~) | ~INPUT_ATTACK~ para castar" or "Formato: Círculo (~INPUT_COVER~/~INPUT_CONTEXT~) | ~INPUT_ATTACK~ para castar")
+      AddTextComponentSubstringPlayerName(hint)
       EndTextCommandDisplayHelp(0, false, false, -1)
       if IsDisabledControlJustPressed(0, 24) then
-        ensureAnim('misslamar1leadinout')
-        TaskPlayAnim(ped, 'misslamar1leadinout', 'yoga_02_idle', 8.0, 1.0, 3000, 1, 0.0, false, false, false)
-        CreateThread(function()
-          Wait(3000)
-          ClearPedTasksImmediately(ped)
-        end)
-        casting = true
-        CreateThread(function()
-          while casting do
-            DisableControlAction(0, 24, true)
-            DisableControlAction(0, 25, true)
-            DisableControlAction(0, 140, true)
-            DisableControlAction(0, 141, true)
-            DisableControlAction(0, 142, true)
-            if IsControlJustPressed(0, 167) or IsControlJustPressed(0, 73) then
-              ClearPedTasksImmediately(ped)
-              casting = false
+        if casting or next(activeProps) ~= nil then
+          TriggerEvent('QBCore:Notify', 'Magia ainda está recarregando', 'error', 2000)
+        else
+          ensureAnim('misslamar1leadinout')
+          TaskPlayAnim(ped, 'misslamar1leadinout', 'yoga_02_idle', 8.0, 1.0, 3000, 1, 0.0, false, false, false)
+          CreateThread(function()
+            Wait(3000)
+            ClearPedTasksImmediately(ped)
+          end)
+          casting = true
+          CreateThread(function()
+            while casting do
+              DisableControlAction(0, 24, true)
+              DisableControlAction(0, 25, true)
+              DisableControlAction(0, 140, true)
+              DisableControlAction(0, 141, true)
+              DisableControlAction(0, 142, true)
+              if IsControlJustPressed(0, 167) or IsControlJustPressed(0, 73) then
+                ClearPedTasksImmediately(ped)
+                casting = false
+              end
+              Wait(0)
             end
-            Wait(0)
-          end
-        end)
-        Wait(500)
-        castTrees(targetPos, radius)
-        senjuActive = false
-        break
+          end)
+          Wait(500)
+          castTrees(targetPos, radius, shapes[shapeIndex], { right = camRight(), forward = camForward() })
+          senjuActive = false
+          break
+        end
+      end
+      if IsControlJustPressed(0, 44) then
+        shapeIndex = shapeIndex - 1
+        if shapeIndex < 1 then shapeIndex = #shapes end
+      end
+      if IsControlJustPressed(0, 38) then
+        shapeIndex = shapeIndex + 1
+        if shapeIndex > #shapes then shapeIndex = 1 end
       end
       if IsControlJustPressed(0, 167) or IsControlJustPressed(0, 73) then
         cancelSenju()
