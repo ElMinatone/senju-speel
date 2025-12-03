@@ -8,10 +8,10 @@ local AUDIO_MAX_DISTANCE = 60.0 -- distância máxima para ouvir o áudio em met
 local DENSITY_MIN = 0.10 -- densidade mínima de árvores por m²
 local DENSITY_MAX = 0.20 -- densidade máxima de árvores por m²
 local DENSITY_MIN_COUNT = 8 -- quantidade mínima de árvores
-local DENSITY_MAX_COUNT = 48 -- quantidade máxima de árvores
-local DENSITY_BASE_RADIUS = 5.0 -- raio referência onde a densidade padrão é mantida
-local DENSITY_FINAL_MULT = 3.0 -- multiplicador final da densidade ao atingir RADIUS_MAX
-local ACCEL_MULT = 1.0 -- multiplicador de aceleração; maior = mais brusco e mais impacto
+local DENSITY_MAX_COUNT = 40 -- quantidade máxima de árvores
+local DENSITY_BASE_RADIUS = 4.0 -- raio referência onde a densidade padrão é mantida
+local DENSITY_FINAL_MULT = 6.0 -- multiplicador final da densidade ao atingir RADIUS_MAX
+local ACCEL_MULT = 1.3 -- multiplicador de aceleração; maior = mais brusco e mais impacto
 local radius = 5.0 -- raio inicial da área em metros
 local lastTargetPos
 local lastRadius
@@ -22,6 +22,7 @@ local treeModels = {
   `prop_sapling_break_02`,
   `prop_tree_birch_03b`,
 }
+
 local activeProps = {}
 local casting = false
 local shapes = { 'circle', 'bar' }
@@ -114,6 +115,7 @@ local function castTrees(center, rad, shape, basis)
   local objs = {}
   local placed = {}
   local area = math.pi * rad * rad
+  local rad2 = rad * rad
   local densRand = DENSITY_MIN + (DENSITY_MAX - DENSITY_MIN) * math.random()
   local t
   if rad <= DENSITY_BASE_RADIUS then
@@ -177,18 +179,18 @@ local function castTrees(center, rad, shape, basis)
     SetEntityCollision(obj, true, true)
     SetEntityDynamic(obj, true)
     ActivatePhysics(obj)
-    local tiltX = (math.random() - 0.5) * 8.0
-    local tiltY = (math.random() - 0.5) * 8.0
-    local tiltZ = (math.random() - 0.5) * 6.0
-    SetEntityRotation(obj, tiltX, tiltY, tiltZ, 2)
+    local yaw = math.random() * 360.0
+    local tiltChance = (math.random() < 0.35)
+    local tiltX = tiltChance and ((math.random() - 0.5) * 6.0) or 0.0
+    local tiltY = tiltChance and ((math.random() - 0.5) * 6.0) or 0.0
+    SetEntityRotation(obj, tiltX, tiltY, yaw, 2)
     local s = 0.8 + math.random() * 1.2
     local f, rgt, up, pos = GetEntityMatrix(obj)
     local fx, fy, fz = f.x * s, f.y * s, f.z * s
     local rx, ry, rz = rgt.x * s, rgt.y * s, rgt.z * s
     local ux, uy, uz = up.x * s, up.y * s, up.z * s
     SetEntityMatrix(obj, fx, fy, fz, rx, ry, rz, ux, uy, uz, ox, oy, zStart)
-    objs[#objs + 1] = { obj = obj, x = ox, y = oy, z0 = zStart, zf = zStart - 6.0, z1 = (ogz or baseZ), model = model, tiltX =
-    tiltX, tiltY = tiltY, tiltZ = tiltZ }
+    objs[#objs + 1] = { obj = obj, x = ox, y = oy, z0 = zStart, zf = zStart - 6.0, z1 = (ogz or baseZ), model = model, tiltX = tiltX, tiltY = tiltY, yaw = yaw }
     activeProps[#activeProps + 1] = obj
     ::continue::
   end
@@ -197,6 +199,7 @@ local function castTrees(center, rad, shape, basis)
   local affectedVehs = {}
   TriggerServerEvent('um-senju:server:playAudio', {x=cx,y=cy,z=baseZ}, AUDIO_MAX_DISTANCE, AUDIO_BASE_VOLUME, 1500 + 10000 + 1500)
   CreateThread(function()
+    local frame = 0
     while true do
       local now = GetGameTimer()
       local t = (now - start) / dur
@@ -206,33 +209,38 @@ local function castTrees(center, rad, shape, basis)
         local nz = o.z0 + (o.z1 - o.z0) * eased
         local dz = nz - (GetEntityCoords(o.obj).z)
         SetEntityCoordsNoOffset(o.obj, o.x, o.y, nz, true, true, true)
-        SetEntityRotation(o.obj, o.tiltX, o.tiltY, o.tiltZ, 2)
+        SetEntityRotation(o.obj, o.tiltX, o.tiltY, o.yaw, 2)
         SetEntityVelocity(o.obj, 0.0, 0.0, math.max(0.0, dz * (20.0 * ACCEL_MULT)))
       end
-      local players = GetActivePlayers()
-      for i = 1, #players do
-        local pid = players[i]
-        local pped = GetPlayerPed(pid)
-        local px, py, pz = table.unpack(GetEntityCoords(pped))
-        local dx = px - cx
-        local dy = py - cy
-        local dist2 = dx * dx + dy * dy
-        if dist2 <= (rad * rad) then
-          local dlen = math.sqrt(dist2) + 0.001
-          local nx = dx / dlen
-          local ny = dy / dlen
-          local zBoost = 35.0 * ACCEL_MULT
-          local veh = GetVehiclePedIsIn(pped, false)
-          if veh and veh ~= 0 then
-            SetEntityAsMissionEntity(veh, true, true)
-            affectedVehs[veh] = true
-            ApplyForceToEntity(veh, 1, nx * (60.0 * ACCEL_MULT), ny * (60.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
-          else
-            ApplyForceToEntity(pped, 1, nx * (60.0 * ACCEL_MULT), ny * (60.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+      if (frame % 2) == 0 then
+        local players = GetActivePlayers()
+        for i = 1, #players do
+          local pid = players[i]
+          local pped = GetPlayerPed(pid)
+          local px, py, pz = table.unpack(GetEntityCoords(pped))
+          local dx = px - cx
+          local dy = py - cy
+          local dist2 = dx * dx + dy * dy
+          if dist2 <= rad2 then
+            local dlen = math.sqrt(dist2) + 0.001
+            local nx = dx / dlen
+            local ny = dy / dlen
+            local zBoost = 35.0 * ACCEL_MULT
+            local veh = GetVehiclePedIsIn(pped, false)
+            if veh and veh ~= 0 then
+              if not affectedVehs[veh] then
+                SetEntityAsMissionEntity(veh, true, true)
+                affectedVehs[veh] = true
+              end
+              ApplyForceToEntity(veh, 1, nx * (60.0 * ACCEL_MULT), ny * (60.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+            else
+              ApplyForceToEntity(pped, 1, nx * (60.0 * ACCEL_MULT), ny * (60.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+            end
           end
         end
       end
       if t >= 1.0 then break end
+      frame = frame + 1
       Wait(0)
     end
     local holdStart = GetGameTimer()
@@ -241,7 +249,7 @@ local function castTrees(center, rad, shape, basis)
     while GetGameTimer() - holdStart < 10000 do
       for _, o in ipairs(objs) do
         SetEntityCoordsNoOffset(o.obj, o.x, o.y, o.z1, true, true, true)
-        SetEntityRotation(o.obj, o.tiltX, o.tiltY, o.tiltZ, 2)
+        SetEntityRotation(o.obj, o.tiltX, o.tiltY, o.yaw, 2)
         FreezeEntityPosition(o.obj, true)
       end
       if not finalAudioPlayed and (GetGameTimer() - holdStart) >= 8000 then
@@ -262,33 +270,38 @@ local function castTrees(center, rad, shape, basis)
         local nz = o.z1 + (o.zf - o.z1) * eased
         local dz = nz - (GetEntityCoords(o.obj).z)
         SetEntityCoordsNoOffset(o.obj, o.x, o.y, nz, true, true, true)
-        SetEntityRotation(o.obj, o.tiltX, o.tiltY, o.tiltZ, 2)
+        SetEntityRotation(o.obj, o.tiltX, o.tiltY, o.yaw, 2)
         SetEntityVelocity(o.obj, 0.0, 0.0, math.min(0.0, dz * (25.0 * ACCEL_MULT)))
       end
-      local players2 = GetActivePlayers()
-      for i = 1, #players2 do
-        local pid = players2[i]
-        local pped = GetPlayerPed(pid)
-        local px, py, pz = table.unpack(GetEntityCoords(pped))
-        local dx = px - cx
-        local dy = py - cy
-        local dist2 = dx * dx + dy * dy
-        if dist2 <= (rad * rad) then
-          local dlen = math.sqrt(dist2) + 0.001
-          local nx = dx / dlen
-          local ny = dy / dlen
-          local zBoost = 25.0 * ACCEL_MULT
-          local veh = GetVehiclePedIsIn(pped, false)
-          if veh and veh ~= 0 then
-            SetEntityAsMissionEntity(veh, true, true)
-            affectedVehs[veh] = true
-            ApplyForceToEntity(veh, 1, nx * (55.0 * ACCEL_MULT), ny * (55.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
-          else
-            ApplyForceToEntity(pped, 1, nx * (55.0 * ACCEL_MULT), ny * (55.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+      if (frame % 2) == 0 then
+        local players2 = GetActivePlayers()
+        for i = 1, #players2 do
+          local pid = players2[i]
+          local pped = GetPlayerPed(pid)
+          local px, py, pz = table.unpack(GetEntityCoords(pped))
+          local dx = px - cx
+          local dy = py - cy
+          local dist2 = dx * dx + dy * dy
+          if dist2 <= rad2 then
+            local dlen = math.sqrt(dist2) + 0.001
+            local nx = dx / dlen
+            local ny = dy / dlen
+            local zBoost = 25.0 * ACCEL_MULT
+            local veh = GetVehiclePedIsIn(pped, false)
+            if veh and veh ~= 0 then
+              if not affectedVehs[veh] then
+                SetEntityAsMissionEntity(veh, true, true)
+                affectedVehs[veh] = true
+              end
+              ApplyForceToEntity(veh, 1, nx * (55.0 * ACCEL_MULT), ny * (55.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+            else
+              ApplyForceToEntity(pped, 1, nx * (55.0 * ACCEL_MULT), ny * (55.0 * ACCEL_MULT), zBoost, 0.0, 0.0, 0.0, false, true, true, false, true)
+            end
           end
         end
       end
       if t >= 1.0 then break end
+      frame = frame + 1
       Wait(0)
     end
     for _, o in ipairs(objs) do
@@ -323,7 +336,7 @@ RegisterNetEvent('um-senju:client:playAudio', function(center, maxDist, baseVol,
         vol = baseVol * (1.0 - (d / maxDist))
       end
       SendNUIMessage({ action = 'volume', volume = vol })
-      Wait(200)
+      Wait(250)
     end
     SendNUIMessage({ action = 'stop' })
   end)
@@ -384,7 +397,7 @@ RegisterNetEvent('um-senju:client:activate', function(src)
       
       if IsDisabledControlJustPressed(0, 24) then
         if casting or next(activeProps) ~= nil then
-          TriggerEvent('QBCore:Notify', 'O solo ainda está se recuperando..', 'error', 2000)
+          TriggerEvent('QBCore:Notify', 'O solo ainda está se recuperando.', 'error', 2000)
         else
           ensureAnim('misslamar1leadinout')
           TaskPlayAnim(ped, 'misslamar1leadinout', 'yoga_02_idle', 8.0, 1.0, 3000, 1, 0.0, false, false, false)
