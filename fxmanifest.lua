@@ -18,7 +18,7 @@ ui_page 'html/index.html'
 files {
   'html/index.html',
   'html/app.js',
-  'growing.mp3'
+  'html/growing.mp3'
 }
 
 lua54 'yes'

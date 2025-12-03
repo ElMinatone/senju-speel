@@ -4,6 +4,8 @@ window.addEventListener('message', (e) => {
   const d = e.data
   if (d && d.action === 'play') {
     try {
+      if (d.src) audio.src = d.src
+      audio.pause()
       audio.currentTime = 0
       audio.volume = Math.max(0, Math.min(1, d.volume || 0.8))
       audio.loop = false

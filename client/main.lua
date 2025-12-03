@@ -1,9 +1,15 @@
 local last = 0
 local senjuActive = false
 local targetPos
-local RADIUS_MIN = 2.0
-local RADIUS_MAX = 20.0
-local radius = 3.0
+local RADIUS_MIN = 2.0 -- raio mínimo da área em metros
+local RADIUS_MAX = 20.0 -- raio máximo da área em metros
+local AUDIO_BASE_VOLUME = 0.8 -- volume no centro da área (0.0 a 1.0)
+local AUDIO_MAX_DISTANCE = 40.0 -- distância máxima para ouvir o áudio em metros
+local DENSITY_MIN = 0.10 -- densidade mínima de árvores por m²
+local DENSITY_MAX = 0.20 -- densidade máxima de árvores por m²
+local DENSITY_MIN_COUNT = 8 -- quantidade mínima de árvores
+local DENSITY_MAX_COUNT = 48 -- quantidade máxima de árvores
+local radius = 5.0 -- raio inicial da área em metros
 local lastTargetPos
 local lastRadius
 local blinkUntil = 0
@@ -79,7 +85,10 @@ local function castTrees(center, rad)
   local baseZ = (gz or cz)
   local objs = {}
   local placed = {}
-  local count = math.min(36, math.max(8, math.floor(rad * 4)))
+  local area = math.pi * rad * rad
+  local dens = DENSITY_MIN + (DENSITY_MAX - DENSITY_MIN) * math.random()
+  local rawCount = math.floor(area * dens)
+  local count = math.min(DENSITY_MAX_COUNT, math.max(DENSITY_MIN_COUNT, rawCount))
   for i = 1, count do
     local minSep = math.max(2.5, rad * 0.15)
     local ox, oy
@@ -139,7 +148,7 @@ local function castTrees(center, rad)
   local start = GetGameTimer()
   local dur = 1500
   local affectedVehs = {}
-  TriggerServerEvent('um-senju:server:playAudio', {x=cx,y=cy,z=baseZ}, Config.audio.max_distance, Config.audio.base_volume, 1500 + 10000 + 1500)
+  TriggerServerEvent('um-senju:server:playAudio', {x=cx,y=cy,z=baseZ}, AUDIO_MAX_DISTANCE, AUDIO_BASE_VOLUME, 1500 + 10000 + 1500)
   CreateThread(function()
     while true do
       local now = GetGameTimer()
@@ -180,17 +189,21 @@ local function castTrees(center, rad)
       Wait(0)
     end
     local holdStart = GetGameTimer()
+    local ddur = 6000
+    local finalAudioPlayed = false
     while GetGameTimer() - holdStart < 10000 do
       for _, o in ipairs(objs) do
         SetEntityCoordsNoOffset(o.obj, o.x, o.y, o.z1, true, true, true)
         SetEntityRotation(o.obj, o.tiltX, o.tiltY, o.tiltZ, 2)
         FreezeEntityPosition(o.obj, true)
       end
+      if not finalAudioPlayed and (GetGameTimer() - holdStart) >= 8000 then
+        TriggerServerEvent('um-senju:server:playAudio', {x=cx,y=cy,z=baseZ}, AUDIO_MAX_DISTANCE, AUDIO_BASE_VOLUME, ddur)
+        finalAudioPlayed = true
+      end
       Wait(0)
     end
     local dstart = GetGameTimer()
-    local ddur = 1500
-    TriggerServerEvent('um-senju:server:playAudio', {x=cx,y=cy,z=baseZ}, Config.audio.max_distance, Config.audio.base_volume, ddur)
     while true do
       local now = GetGameTimer()
       local t = (now - dstart) / ddur
@@ -250,7 +263,7 @@ end
 RegisterNetEvent('um-senju:client:playAudio', function(center, maxDist, baseVol, duration)
   local ped = PlayerPedId()
   local start = GetGameTimer()
-  SendNUIMessage({ action = 'play', volume = baseVol })
+  SendNUIMessage({ action = 'play', volume = baseVol, src = 'nui://um-senju/html/growing.mp3' })
   CreateThread(function()
     while GetGameTimer() - start < (duration or 13000) do
       local p = GetEntityCoords(ped)
