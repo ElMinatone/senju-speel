@@ -415,12 +415,13 @@ end
 -- checagem otimizada de impacto: primeira esfera, depois box rotacionado via matrix (apenas quando estiver perto)
 function Tree:testPedImpact(ped)
   if not DoesEntityExist(self.obj) or not DoesEntityExist(ped) then return false end
-  if self.state ~= "ASCENDING" then return false end
+  if self.state == "ACTIVE" then return false end
   local px, py, pz = table.unpack(GetEntityCoords(ped))
   local dx = px - self.x
   local dy = py - self.y
   local dist2 = dx * dx + dy * dy
-  local radiusCheck = math.max(self.extX, self.extY) * 1.02 + 0.1
+  local mul = (self.state == "ASCENDING") and 1.35 or 1.02
+  local radiusCheck = math.max(self.extX, self.extY) * mul + 0.1
   if dist2 > (radiusCheck * radiusCheck) then
     return false
   end
@@ -433,7 +434,7 @@ function Tree:testPedImpact(ped)
   local lx = r.x * ddx + r.y * ddy + r.z * ddz
   local ly = f.x * ddx + f.y * ddy + f.z * ddz
   local lz = u.x * ddx + u.y * ddy + u.z * ddz
-  if math.abs(lx) <= (self.extX * 1.02) and math.abs(ly) <= (self.extY * 1.02) and math.abs(lz) <= (self.extZ * 1.02) then
+  if math.abs(lx) <= (self.extX * mul) and math.abs(ly) <= (self.extY * mul) and math.abs(lz) <= (self.extZ * mul) then
     -- impacto verdadeiro
     return true, ddx, ddy
   end
@@ -738,12 +739,13 @@ local function castTrees(center, rad, shape, basis)
               local ok, ddx, ddy = tr:testPedImpact(pped)
               if ok and not ragdolled[pped] then
                 ragdolled[pped] = true
-                local dlen = math.sqrt((ddx or 0) * (ddx or 0) + (ddy or 0) * (ddy or 0)) + 0.001
-                local enx = (ddx or 0) / dlen
-                local eny = (ddy or 0) / dlen
-                -- aplicar força similar ao original
                 SetPedToRagdoll(pped, 2000, 2000, 0, false, false, false)
-                ApplyForceToEntityCenterOfMass(pped, 1, enx * (IMPACT_H * ACCEL_MULT * 0.6), eny * (IMPACT_H * ACCEL_MULT * 0.6), (IMPACT_V * ACCEL_MULT * 0.6), false, true, true, false)
+                local ang = math.random() * 2.0 * math.pi
+                local hx = math.cos(ang) * (9.0 * ACCEL_MULT)
+                local hy = math.sin(ang) * (9.0 * ACCEL_MULT)
+                local vz = (12.0 * ACCEL_MULT)
+                ApplyForceToEntityCenterOfMass(pped, 1, hx, hy, vz, false, true, true, false)
+                SetEntityVelocity(pped, hx * 0.05, hy * 0.05, vz * 0.03)
               end
             end
           end
@@ -763,11 +765,13 @@ local function castTrees(center, rad, shape, basis)
                 local ok, ddx, ddy = tr:testPedImpact(ped)
                 if ok and not ragdolled[ped] then
                   ragdolled[ped] = true
-                  local dlen = math.sqrt((ddx or 0) * (ddx or 0) + (ddy or 0) * (ddy or 0)) + 0.001
-                  local enx = (ddx or 0) / dlen
-                  local eny = (ddy or 0) / dlen
                   SetPedToRagdoll(ped, 2000, 2000, 0, false, false, false)
-                  ApplyForceToEntityCenterOfMass(ped, 1, enx * (IMPACT_H * ACCEL_MULT * 0.6), eny * (IMPACT_H * ACCEL_MULT * 0.6), (IMPACT_V * ACCEL_MULT * 0.6), false, true, true, false)
+                  local ang = math.random() * 2.0 * math.pi
+                  local hx = math.cos(ang) * (9.0 * ACCEL_MULT)
+                  local hy = math.sin(ang) * (9.0 * ACCEL_MULT)
+                  local vz = (12.0 * ACCEL_MULT)
+                  ApplyForceToEntityCenterOfMass(ped, 1, hx, hy, vz, false, true, true, false)
+                  SetEntityVelocity(ped, hx * 0.05, hy * 0.05, vz * 0.03)
                   break
                 end
               end
@@ -1001,8 +1005,31 @@ CreateThread(function()
       local tr = activeTrees[i]
       if tr and not tr.deleted then
         tr:update()
-        -- se ACTIVE, checar colisões contra player (aplica força/vs ragdoll)
-        if tr.state == "ACTIVE" then
+        -- Descending: apenas ragdoll ao encostar nas boxes
+        if tr.state == "DESCENDING_VISIBLE" or tr.state == "DESCENDING_DEEP" then
+          -- players
+          for _, pid in ipairs(GetActivePlayers()) do
+            local pped = GetPlayerPed(pid)
+            if pped and pped ~= 0 and DoesEntityExist(pped) then
+              local ok = tr:testPedImpact(pped)
+              if ok and not IsPedRagdoll(pped) then
+                SetPedToRagdoll(pped, 1500, 1500, 0, false, false, false)
+              end
+            end
+          end
+          -- NPCs
+          local handle, ped = FindFirstPed()
+          local success = true
+          while success do
+            if ped ~= 0 and ped ~= PlayerPedId() and not IsPedAPlayer(ped) and not IsEntityDead(ped) then
+              local ok = tr:testPedImpact(ped)
+              if ok and not IsPedRagdoll(ped) then
+                SetPedToRagdoll(ped, 1500, 1500, 0, false, false, false)
+              end
+            end
+            success, ped = FindNextPed(handle)
+          end
+          EndFindPed(handle)
         end
       else
         -- se deletado, remover da lista
